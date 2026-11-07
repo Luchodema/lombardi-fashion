@@ -648,7 +648,7 @@ function aiErr(e){
   if(c==='image_rejected') return 'No pude leer esa foto. Probá con otra.';
   if(c==='invalid_json') return 'La respuesta vino rara. Tocá de nuevo para reintentar.';
   if(c==='refused') return 'La IA no quiso analizar esa imagen.';
-  return 'Algo falló al consultar la IA. Probá de nuevo.';
+  return 'Algo falló al consultar la IA'+(e&&e.message?': '+String(e.message).slice(0,160):'')+'. Probá de nuevo.';
 }
 const AI_PROMPT = `Sos un catalogador de ropa para una app de estilismo. La foto puede tener UNA o VARIAS prendas (ropa, calzado o accesorios), extendidas sobre una cama o el piso, colgadas o puestas. Detectá cada prenda por separado. Ignorá personas, muebles y fondo.
 Respondé SOLO con JSON con esta forma: {"prendas":[{...}]}. Campos de cada prenda:
@@ -1362,7 +1362,7 @@ function render(){
   $('#tabs').innerHTML=tabs();
   setSync(syncState);
 }
-function toast(msg){ let t=$('#toast'); if(!t){t=document.createElement('div');t.id='toast';t.className='toast';t.setAttribute('role','status');document.body.appendChild(t);} t.textContent=msg; t.hidden=false; clearTimeout(toastT); toastT=setTimeout(()=>{t.hidden=true},2600); }
+function toast(msg){ let t=$('#toast'); if(!t){t=document.createElement('div');t.id='toast';t.className='toast';t.setAttribute('role','status');document.body.appendChild(t);} t.textContent=msg; t.hidden=false; clearTimeout(toastT); toastT=setTimeout(()=>{t.hidden=true},msg.length>60?7000:2600); }
 
 /* ============ acciones ============ */
 function markUsed(o){
