@@ -267,6 +267,7 @@ async function cloudLoad(){
   for(let i=0;i<paths.length;i+=100){ const {data}=await sb.storage.from('fotos').createSignedUrls(paths.slice(i,i+100),60*60*24*7); (data||[]).forEach(d=>{ if(d.signedUrl) urls[d.path]=d.signedUrl; }); }
   (b.data||[]).forEach(r=>{ const pr=s.profiles[r.perfil]; if(pr) pr.items.push({...r.datos,id:r.id,fotoPath:r.foto_path||null,foto:r.foto_path?(urls[r.foto_path]||null):null}); });
   ST=s; migrate(); markSynced(); reindex(); cacheLocal(); setSync('ok');
+  if(purgeEjemplos()) save();
 }
 async function cloudPush(){
   if(!sb||!session) return;
@@ -333,7 +334,19 @@ function load(){
   ST=null;
   try{ const raw=localStorage.getItem(cacheKey()); if(raw){ const s=JSON.parse(raw); if(s&&s.profiles) ST=s; } }catch(e){}
   if(!ST) ST=freshState();
-  migrate(); reindex();
+  migrate(); if(!CLOUD) purgeEjemplos(); reindex();
+}
+/* las prendas de ejemplo del prototipo no van en la app real: se borran (también de la nube) */
+function purgeEjemplos(){
+  let n=0;
+  Object.values(ST.profiles).forEach(p=>{
+    const ids=new Set(p.items.filter(i=>i.ejemplo).map(i=>i.id)); if(!ids.size) return; n+=ids.size;
+    p.items=p.items.filter(i=>!ids.has(i.id));
+    Object.keys(p.outfit.slots).forEach(k=>{ if(ids.has(p.outfit.slots[k])){ delete p.outfit.slots[k]; delete p.outfit.locks[k]; } });
+    p.saved=(p.saved||[]).filter(s=>!Object.values(s.slots).some(id=>ids.has(id)));
+  });
+  if(n){ hoyRes=null; comprasCache=null; }
+  return n;
 }
 function migrate(){
   ST.ctx={...freshState().ctx,...ST.ctx};
@@ -426,8 +439,8 @@ function evaluate(o, ctx, p, opt={}){
     let w=0; xs.forEach(({k,it})=>{ if(it.zona==='torso'||it.zona==='cuerpo') w+=+it.abrigo||1; if((it.zona==='cabeza'||it.zona==='cuello')&&ctx.temp<=1) w+=((+it.abrigo||1)-1)*.6; });
     const [lo,hi]=temp.r; const tl=lc(temp.l);
     if(main.length){
-      if(w<lo){ const d=lo-w; pen+=.17*d; issues.push({c:'clima',t:`Poco abrigo para ${tl}: ${d>=3?'te vas a congelar, sumá una o dos capas':'sumá una capa'}`,warm:'up'}); }
-      else if(w>hi){ const d=w-hi; pen+=.15*d; issues.push({c:'clima',t:`Demasiado abrigo para ${tl}: sacate una capa`,warm:'down'}); }
+      if(w<lo){ const d=lo-w; pen+=.17*d; if(d>=1) issues.push({c:'clima',t:`Poco abrigo para ${tl}: ${d>=3?'te vas a congelar, sumá una o dos capas':'sumá una capa'}`,warm:'up'}); }
+      else if(w>hi){ const d=w-hi; pen+=.15*d; if(d>=1) issues.push({c:'clima',t:`Demasiado abrigo para ${tl}: sacate una capa`,warm:'down'}); }
       else pros.push(`Abrigo justo para ${tl}`);
     }
     const legs=o.slots.cuerpo?byId(o.slots.cuerpo):(o.slots.piernas?byId(o.slots.piernas):null);
@@ -514,10 +527,23 @@ function critColor(v){ return v>=.75?'var(--s8)':v>=.5?'var(--s5)':'var(--s2)'; 
 const CRIT_LBL={clima:'Clima',color:'Colores',estilo:'Estilo',ocasion:'Ocasión',prop:'Proporciones',moda:'Moda y temporada'};
 const CRIT_WHY={color:'mejora la combinación de colores',estilo:'queda más coherente de estilo',clima:'va mejor con el clima',ocasion:'acompaña mejor la ocasión',prop:'mejora las proporciones',moda:'está más al día y va con la temporada'};
 
-function pool(p, sub){
+function pool(p, sub, ctx){
   const d=SUB[sub];
-  return p.items.filter(i=>i.estado!=='sucio' && !vetado(i,p) && i.zona===d.z && (d.c?(i.capa||'base')===d.c:true));
+  return p.items.filter(i=>i.estado!=='sucio' && !vetado(i,p) && i.zona===d.z && (d.c?(i.capa||'base')===d.c:true) && (!ctx||aptoClima(i,ctx)));
 }
+/* lo que nunca se recomienda con ese clima (el usuario igual lo puede elegir a mano en Armar) */
+function aptoClima(it,ctx){
+  const t=+ctx.temp, wet=ctx.clima==='lluvia'||ctx.clima==='nieve', k=kindOf(it), txt=((it.tipo||'')+' '+(it.nombre||'')).toLowerCase();
+  if(k==='sandalia' && t<=2) return false;
+  if(wet && it.lluvia===false && (it.zona==='pies'||it.zona==='externo'||(it.zona==='torso'&&it.capa==='exterior'))) return false;
+  if(t<=1 && (it.temporada==='verano' || /short|bermuda/.test(txt))) return false;
+  if(t<=1 && it.zona==='torso' && it.capa==='base' && /musculosa|top de tiras|crop/.test(txt)) return false;
+  if(t>=4 && it.zona==='torso' && it.capa!=='base' && +it.abrigo>=3) return false;
+  if(t>=3 && it.temporada==='invierno') return false;
+  if(t>=4 && k==='bota') return false;
+  return true;
+}
+function climaOK(e){ return e.crit.clima.v>=.8; }
 function evalOpts(){ return {estilo:ctxEstilo()}; }
 function cloneO(o){ return {slots:{...o.slots},locks:{...o.locks}}; }
 
@@ -530,7 +556,7 @@ function suggestions(o, ctx, p){
     if(k==='cuerpo'&&!cur) continue;
     if((k==='torso_base'||k==='piernas')&&!cur) continue;
     let best=null;
-    for(const it of pool(p,k)){
+    for(const it of pool(p,k,ctx)){
       if(cur&&it.id===cur.id) continue;
       const t=cloneO(o); t.slots[k]=it.id; const e=evaluate(t,ctx,p,evalOpts()); const d=e.s-base.s;
       if(!best||d>best.d) best={k,cur,it,d,e,type:cur?'swap':'add'};
@@ -557,10 +583,11 @@ function fillLayers(o, ctx, p, opts){
   for(let pass=0;pass<2;pass++) for(const k of order){
     if(o.slots[k]||o.locks[k]||blocked(o,k)) continue;
     let best=null;
-    for(const it of pool(p,k)){
+    for(const it of pool(p,k,ctx)){
       if((k==='cuello'||k==='cabeza') && (+it.abrigo||1)<2) continue;
       const t=cloneO(o); t.slots[k]=it.id; const e=evaluate(t,ctx,p,opts);
-      if(e.s>cur.s+.012 && (!best||e.s>best.e.s)) best={it,e};
+      const mejoraClima=e.crit.clima.v>cur.crit.clima.v+.02;
+      if((mejoraClima||e.s>cur.s+.012) && (!best||e.crit.clima.v>best.e.crit.clima.v+.001||(Math.abs(e.crit.clima.v-best.e.crit.clima.v)<=.001&&e.s>best.e.s))) best={it,e};
     }
     if(best){ o.slots[k]=best.it.id; cur=best.e; }
   }
@@ -577,7 +604,7 @@ function completar(o, ctx, p){
     if(o.slots[k]||o.locks[k]||blocked(o,k)) continue;
     if(k0.endsWith('_opt')) continue;
     let best=null;
-    for(const it of pool(p,k)){ const t=cloneO(o); t.slots[k]=it.id; const e=evaluate(t,ctx,p,opts); if(!best||e.s>best.s) best={it,s:e.s}; }
+    for(const it of pool(p,k,ctx)){ const t=cloneO(o); t.slots[k]=it.id; const e=evaluate(t,ctx,p,opts); if(!best||e.s>best.s) best={it,s:e.s}; }
     if(best) o.slots[k]=best.it.id;
   }
   /* si alguna capa de torso hace sobrar abrigo y no está con candado, se prueba quitarla */
@@ -586,7 +613,7 @@ function completar(o, ctx, p){
 }
 function generar(ctx, p){
   const opts=evalOpts();
-  const bases=pool(p,'torso_base'), legs=pool(p,'piernas'), feet=pool(p,'pies'), dresses=pool(p,'cuerpo');
+  const bases=pool(p,'torso_base',ctx), legs=pool(p,'piernas',ctx), feet=pool(p,'pies',ctx), dresses=pool(p,'cuerpo',ctx);
   let combos=[];
   for(const t of bases) for(const l of legs) for(const f of feet) combos.push({torso_base:t.id,piernas:l.id,pies:f.id});
   for(const d of dresses) for(const f of feet) combos.push(isEnterito(d)?{cuerpo:d.id,pies:f.id}:{cuerpo:d.id,pies:f.id});
@@ -596,8 +623,8 @@ function generar(ctx, p){
   const full=scored.map(({c})=>{
     const o={slots:{...c},locks:{}}; const e=fillLayers(o,ctx,p,opts);
     let adj=0; Object.values(o.slots).forEach(id=>{const it=byId(id); if(!it) return; if(daysAgo(it.ultimoUso)<=3) adj-=.035; { const fr=['otoño','invierno'].includes(estacion()); if((fr&&it.temporada==='verano')||(!fr&&it.temporada==='invierno')) adj-=.04; } adj+=Math.min(.03,.01*((p.likes||{})[id]||0));});
-    return {o,e,score:e.s+adj,key:comboKey(o)};
-  }).filter(x=>!dislikes.has(x.key)).sort((a,b)=>b.score-a.score);
+    return {o,e,ok:climaOK(e),score:e.s+adj,key:comboKey(o)};
+  }).filter(x=>!dislikes.has(x.key)).sort((a,b)=>(b.ok-a.ok)||(b.score-a.score));
   const pick=[];
   for(const f of full){
     const sig=[f.o.slots.torso_base||f.o.slots.cuerpo,f.o.slots.piernas||'-',f.o.slots.pies];
@@ -867,7 +894,6 @@ function vHoy(){
     <p class="lede">Primero necesito conocer tu ropa, ${esc(p.perfil.nombre)}.</p>
     <div class="card stack"><p style="margin:0">Poné varias prendas sobre la cama y sacales una foto: la IA las separa sola. Con 10 o 15 prendas ya te puedo armar conjuntos.</p>
     <button class="btn primary block" data-act="nav" data-to="agregar">Cargar mi ropa</button>
-    <button class="btn ghost small" data-act="seed">Probar con ropa de ejemplo</button>
     <p class="tiny muted" style="margin:0">Antes, completá tu perfil (silueta, colorimetría, ocasiones): mejora mucho las recomendaciones.</p></div>`;
   const fecha=d.toLocaleDateString('es-AR',{weekday:'long',day:'numeric',month:'long'});
   let res='';
@@ -882,6 +908,7 @@ function vHoy(){
         ${semaHTML(r.e.seg,true)}
         <div class="thumbs">${its.map(vis).join('')}</div>
         <div class="tiny">${its.map(i=>esc(i.nombre)).join(' · ')}</div>
+        ${!r.ok?`<p class="note" style="margin:0">Con la ropa que cargaste no llego a cubrir bien este clima. ${esc((r.e.issues.find(i=>i.c==='clima')||{}).t||'')}</p>`:''}
         <ul class="why">${why}</ul>
         <div class="row">
           <button class="btn small primary" data-act="hoy-use" data-i="${i}">Lo uso hoy</button>
@@ -1298,11 +1325,9 @@ function vPerfil(){
   <section class="card stack"><span class="eyebrow">Ubicación</span>
     <div class="field"><label for="pf-c">Ciudad para el clima</label><input id="pf-c" type="text" value="${esc(pf.ciudad)}" ${a('ciudad')}></div>
     <div class="row"><button class="btn small" data-act="geo">Usar mi ubicación</button>${pf.geo?'<span class="tiny muted">Usando tu ubicación</span>':''}</div></section>
-  <section class="card stack"><span class="eyebrow">Prendas de ejemplo</span>
-    ${confirmKey==='ej'?`<p style="margin:0">¿Borro las ${p.items.filter(i=>i.ejemplo).length} prendas de ejemplo de ${esc(pf.nombre)}?</p><div class="grid2"><button class="btn" data-act="confirm-no">Cancelar</button><button class="btn primary" data-act="del-ej">Sí, borrar</button></div>`
-    :confirmKey==='reset'?`<p style="margin:0">¿Reinicio la app? Se borran los dos perfiles con todas sus prendas.</p><div class="grid2"><button class="btn" data-act="confirm-no">Cancelar</button><button class="btn primary" data-act="reset">Sí, reiniciar</button></div>`
-    :`<div class="row"><button class="btn small" data-act="ask" data-v="ej" ${p.items.some(i=>i.ejemplo)?'':'disabled'}>Borrar prendas de ejemplo</button><button class="btn small ghost" data-act="ask" data-v="reset">Reiniciar todo</button></div>`}
-    <button class="btn small" data-act="seed">Cargar prendas de ejemplo</button></section>
+  <section class="card stack"><span class="eyebrow">Datos</span>
+    ${confirmKey==='reset'?`<p style="margin:0">¿Borro todo? Se eliminan los dos perfiles con todas sus prendas y fotos. No se puede deshacer.</p><div class="grid2"><button class="btn" data-act="confirm-no">Cancelar</button><button class="btn primary" data-act="reset">Sí, borrar todo</button></div>`
+    :`<button class="btn small ghost" data-act="ask" data-v="reset">Borrar todo y empezar de cero</button>`}</section>
   <section class="card stack"><span class="eyebrow">Cuenta</span>
     <p class="tiny" style="margin:0">${CLOUD&&session?`Conectado como ${esc(session.user.email)}. ${esc(SYNC_TXT[syncState]||'')}.`:'Modo local: los datos quedan solo en este teléfono.'}</p>
     ${CLOUD&&session?`<button class="btn small ghost" data-act="logout">Salir</button>`:''}</section>
@@ -1383,7 +1408,6 @@ const ACT={
   login:()=>doLogin(false), signup:()=>doLogin(true),
   logout:async()=>{ await sb.auth.signOut(); session=null; ST=null; loginMsg=''; render(); },
   geo:()=>{ if(!navigator.geolocation){ toast('Este teléfono no da la ubicación'); return; } navigator.geolocation.getCurrentPosition(pos=>{ const pf=prof().perfil; pf.geo=true; pf.lugar={lat:pos.coords.latitude,lon:pos.coords.longitude,name:'Tu ubicación',q:'__geo'}; save(); loadWeather(true); render(); toast('Uso tu ubicación para el clima'); },()=>toast('No me diste permiso de ubicación')); },
-  seed:()=>{ const p=prof(); p.items.push(...(ST.active==='lucho'?seedLucho():seedElla())); save(); render(); toast('Cargué prendas de ejemplo'); },
   'hoy-gen':()=>{ hoyRes=generar(ST.ctx,prof()); render(); },
   'hoy-use':b=>{ const r=hoyRes[+b.dataset.i]; markUsed(r.o); prof().outfit=cloneO(r.o); save(); toast('Anotado: hoy usás este conjunto'); },
   'hoy-open':b=>{ prof().outfit=cloneO(hoyRes[+b.dataset.i].o); evalOpen=true; aiTxt=''; save(); go('armar'); },
