@@ -1,6 +1,6 @@
 /* Service worker: permite instalar la app y abrirla sin conexión.
    Archivos propios: primero la red (para recibir actualizaciones), si no hay conexión, la copia guardada. */
-const VERSION = 'lf-v4';
+const VERSION = 'lf-v5';
 const SHELL = ['./', './index.html', './css/app.css', './js/app.js', './js/config.js', './manifest.webmanifest',
   './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png'];
 

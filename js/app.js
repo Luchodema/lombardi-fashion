@@ -366,6 +366,11 @@ function vetado(it,p){
   if(!v.length) return false; const t=(it.nombre+' '+it.tipo+' '+it.color+' '+(it.calce||'')).toLowerCase();
   return v.some(w=>t.includes(w));
 }
+function gusta(it,p){
+  const v=(p.perfil.gustos||'').toLowerCase().split(',').map(s=>s.trim()).filter(Boolean);
+  if(!v.length) return false; const t=(it.nombre+' '+it.tipo+' '+it.color+' '+(it.calce||'')+' '+(it.estampado||'')+' '+(it.material||'')).toLowerCase();
+  return v.some(w=>t.includes(w));
+}
 function ctxEstilo(){ const c=ST.ctx; return c.estilo || prof().perfil.estilos[c.ocasion] || (OCASIONES.find(o=>o.k===c.ocasion)||{}).e || 'casual'; }
 
 /* ============ motor de evaluación ============ */
@@ -622,7 +627,7 @@ function generar(ctx, p){
   const scored=combos.map(c=>({c,s:evaluate({slots:c,locks:{}},ctx,p,{...opts,noClima:true}).s})).sort((a,b)=>b.s-a.s).slice(0,45);
   const full=scored.map(({c})=>{
     const o={slots:{...c},locks:{}}; const e=fillLayers(o,ctx,p,opts);
-    let adj=0; Object.values(o.slots).forEach(id=>{const it=byId(id); if(!it) return; if(daysAgo(it.ultimoUso)<=3) adj-=.035; { const fr=['otoño','invierno'].includes(estacion()); if((fr&&it.temporada==='verano')||(!fr&&it.temporada==='invierno')) adj-=.04; } adj+=Math.min(.03,.01*((p.likes||{})[id]||0));});
+    let adj=0; Object.values(o.slots).forEach(id=>{const it=byId(id); if(!it) return; if(daysAgo(it.ultimoUso)<=3) adj-=.035; { const fr=['otoño','invierno'].includes(estacion()); if((fr&&it.temporada==='verano')||(!fr&&it.temporada==='invierno')) adj-=.04; } adj+=Math.min(.03,.01*((p.likes||{})[id]||0)); if(gusta(it,p)) adj+=.03;});
     return {o,e,ok:climaOK(e),score:e.s+adj,key:comboKey(o)};
   }).filter(x=>!dislikes.has(x.key)).sort((a,b)=>(b.ok-a.ok)||(b.score-a.score));
   const pick=[];
@@ -1070,7 +1075,7 @@ async function calcCompras(){
   if(route()==='armario'&&armTab==='compras') render();
 }
 const CORE=new Set(['torso_base','piernas','pies','cuerpo']);
-function valor(r,k,p){ const g=r.by[k].green, s=subFor(r.c); if(CORE.has(s)) return g; const ya=p.items.filter(i=>subFor(i)===s&&i.estado!=='sucio').length; return g*(ACCES.has(r.c.zona)?.2:.35)/(1+.5*ya); }
+function valor(r,k,p){ const g=r.by[k].green*(gusta(r.c,p)?1.4:1), s=subFor(r.c); if(CORE.has(s)) return g; const ya=p.items.filter(i=>subFor(i)===s&&i.estado!=='sucio').length; return g*(ACCES.has(r.c.zona)?.2:.35)/(1+.5*ya); }
 function nivel(g,baseG){ if((baseG<3&&g>=3)||(g>=8&&g>=baseG*.5)) return ['Imprescindible','']; if(g>=5) return ['Muy útil','b']; return ['Opcional','c']; }
 function recCard(r,k,reason,baseG){
   let [lv,cls]=nivel(valor(r,k,prof()),baseG); if(ACCES.has(r.c.zona)&&lv==='Imprescindible'){ lv='Muy útil'; cls='b'; } const idx=comprasCache.res.indexOf(r);
@@ -1082,6 +1087,10 @@ function recCard(r,k,reason,baseG){
 function socioTxt(r,k,n=2){ const ps=Object.entries(r.by[k].partners).sort((a,b)=>b[1]-a[1]).slice(0,n).map(([id])=>byId(id)).filter(Boolean); return ps.length?` Combina con ${ps.map(i=>lc(i.nombre)).join(' y ')}.`:''; }
 function vCompras(){
   const p=prof();
+  const base=p.items.filter(i=>['torso_base','piernas','pies','cuerpo'].includes(subFor(i))).length;
+  if(base<10) return `<div class="card stack"><p style="margin:0"><b>Todavía conozco poco tu ropa.</b> Para recomendarte qué comprar, cargá al menos 10 o 15 prendas: remeras, pantalones, calzado y lo que más uses.</p>
+    <p class="tiny muted" style="margin:0">Llevás ${base} ${base===1?'prenda':'prendas'} de ese tipo cargadas.</p>
+    <button class="btn primary" data-act="nav" data-to="agregar">Cargar ropa</button></div>`;
   if(!comprasCache||comprasCache.sig!==sigP(p)){
     setTimeout(calcCompras,40);
     return `<div class="card stack"><span>Probando cientos de combinaciones con tu ropa…</span><div class="bar"><i id="cprog" style="width:${Math.round(comprasProg*100)}%"></i></div></div>`;
@@ -1109,10 +1118,10 @@ function vCompras(){
   return `<div class="row" style="margin-bottom:12px;flex-wrap:nowrap;overflow-x:auto;padding-bottom:4px">${ocs.map(o=>`<button class="chip" data-act="compra-oc" data-v="${o.k}" aria-pressed="${o.k===k}">${o.l}</button>`).join('')}</div>
   <p class="lede">Para ${ocl} hoy tenés ${C.factor>1?'unos ':''}${B.green} conjuntos que quedan bien. Usás esta ocasión ${lc(FREQ[freqOf(p,k)].l)}.</p>
   <div class="stack">
-    ${sec('Te harían falta','Lo que más conjuntos nuevos te arma con tu ropa.',falta,'Para esta ocasión ya estás bien cubierto.')}
-    ${sec('Para combinar lo que ya tenés','Prendas tuyas que casi no usás porque no tienen con qué.',comb,'Todo lo que tenés para esta ocasión ya combina.')}
-    ${sec('Para más variedad','Tipos o colores que no tenés y que igual combinan.',vari,'No encontré nada distinto que combine bien.')}
-    ${sec('Para estar a la moda',T?`Según las tendencias de ${lc(T.label)}.`:'Sin tendencias cargadas para esta temporada.',moda,'Nada en tendencia que te sume para esta ocasión.')}
+    ${sec('Te harían falta','Las prendas que, sumadas a tu ropa, más conjuntos nuevos te armarían.',falta,'No encontré nada que te sume mucho: para esta ocasión ya tenés con qué vestirte.')}
+    ${sec('Para aprovechar lo que ya tenés','Prendas tuyas que casi no podés usar porque no combinan con nada, y qué comprar para sacarles provecho.',comb,'Todo lo que tenés para esta ocasión ya combina con algo.')}
+    ${sec('Para más variedad','Tipos de prenda o colores que no tenés, y que igual combinarían con tu ropa.',vari,'No encontré nada distinto que combine bien con lo tuyo.')}
+    ${sec('Para estar a la moda',T?`Prendas en tendencia esta temporada (${lc(T.label)}) que combinan con tu ropa.`:'Todavía no cargué las tendencias de esta temporada.',moda,'Nada en tendencia que te sirva para esta ocasión.')}
   </div>
   <p class="tiny muted">Las ocasiones que marcaste como “Nunca” en Perfil no aparecen. Sugerencias genéricas: el color y el tipo de prenda, no una marca.</p>`;
 }
@@ -1180,6 +1189,7 @@ function analizarCompra(it,p){
   const st=p.perfil.subtono;
   if((st==='calido'||st==='frio')&&['torso','cuerpo','cuello'].includes(it.zona)){ const w=warmth(it); if(w===st) { sc+=.05; pros.push(`El color va con tu paleta ${st==='calido'?'cálida':'fría'}`); } else if(w!=='neutro'){ sc-=.1; contras.push(`El color no es de tu paleta ${st==='calido'?'cálida':'fría'}, y va cerca de la cara`); } }
   if(vetado(it,p)){ sc-=.3; capSeg=Math.min(capSeg,3); contras.push('Es algo que marcaste que no te gusta usar'); }
+  if(gusta(it,p)){ sc+=.08; pros.push('Es del tipo de cosas que te gusta usar'); }
   const est=estacion(), fria=est==='otoño'||est==='invierno';
   if((fria&&it.temporada==='verano')||(!fria&&it.temporada==='invierno')) pros.push(`Es para la próxima temporada: si está en liquidación, puede ser buena compra`);
   sc=clamp(sc);
@@ -1316,6 +1326,9 @@ function vPerfil(){
   <section class="card stack"><span class="eyebrow">Tus ocasiones</span>
     <p class="tiny muted" style="margin:0">Cuánto usás cada una y con qué estilo. Las compras recomendadas y la consulta en tienda se ordenan por esto.</p>
     ${OCASIONES.map(o=>`<div class="stack" style="gap:6px"><b style="font-weight:500">${o.l}</b><div class="grid2"><div class="field"><label for="pf-f-${o.k}">Frecuencia</label>${sel('pf-f-'+o.k,FREQ,freqOf(p,o.k),`data-ch="perf-fq" data-f="${o.k}"`)}</div><div class="field"><label for="pf-o-${o.k}">Estilo</label>${sel('pf-o-'+o.k,ESTILO_OPTS,pf.estilos[o.k]||o.e,`data-ch="perf-oc" data-f="${o.k}"`)}</div></div></div>`).join('')}</section>
+  <section class="card stack"><span class="eyebrow">Me gusta usar</span>
+    <div class="field"><label for="pf-y">Palabras separadas por coma (ej.: negro, buzos, zapatillas, jean)</label><input id="pf-y" type="text" value="${esc(pf.gustos||'')}" ${a('gustos')}></div>
+    <p class="tiny muted" style="margin:0">Lo que pongas acá aparece más seguido en tus conjuntos y en lo que te recomiendo comprar.</p></section>
   <section class="card stack"><span class="eyebrow">No me gusta usar</span>
     <div class="field"><label for="pf-x">Palabras separadas por coma (ej.: amarillo, oversize, sandalias)</label><input id="pf-x" type="text" value="${esc(pf.vetos)}" ${a('vetos')}></div></section>
   <section class="card stack"><span class="eyebrow">Moda</span>
