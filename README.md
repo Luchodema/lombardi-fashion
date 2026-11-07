@@ -10,7 +10,7 @@ App web instalable (PWA): un solo link para Android (Chrome → "Instalar app") 
 | --- | --- | --- |
 | App | HTML + JS, publicada con GitHub Pages | gratis |
 | Cuenta, ropa y fotos | Supabase (login, tablas `estado` y `prendas`, carpeta privada `fotos`) | gratis en el plan inicial |
-| IA | Función `estilista` en Supabase que llama a Claude con la clave guardada como secreto | se paga por uso en console.anthropic.com |
+| IA | Función `estilista` en Supabase que llama a Gemini (Google AI Studio) con la clave guardada como secreto | nivel gratuito, con límites |
 | Clima | Open-Meteo, pronóstico por hora, sin clave | gratis |
 
 Sin `js/config.js` completo, la app funciona en **modo local**: guarda solo en ese teléfono y sin IA.
@@ -19,7 +19,8 @@ Sin `js/config.js` completo, la app funciona en **modo local**: guarda solo en e
 
 1. **Supabase → SQL Editor:** pegar `supabase/schema.sql` y tocar Run.
 2. **Supabase → Edge Functions → Deploy a new function → Via Editor:** nombre `estilista`, pegar `supabase/functions/estilista/index.ts`, dejar activado "Enforce JWT verification", Deploy.
-3. **Supabase → Edge Functions → Secrets:** agregar `ANTHROPIC_API_KEY` con la clave de console.anthropic.com.
+3. **Supabase → Edge Functions → Secrets:** agregar `GEMINI_API_KEY` con la clave de aistudio.google.com (Get API key).
+   Alternativa paga con Claude: `supabase/functions/estilista/claude.ts.txt` + secreto `ANTHROPIC_API_KEY`.
 4. **Supabase → Authentication → Sign In / Providers → Email:** desactivar "Confirm email" (así la cuenta queda lista al crearla).
 5. **`js/config.js`:** completar `supabaseUrl` y `supabaseAnonKey` (Project Settings → API).
 6. **GitHub → Settings → Pages:** Source "Deploy from a branch", rama `main`, carpeta `/ (root)`. El link queda en `https://luchodema.github.io/lombardi-fashion/`.

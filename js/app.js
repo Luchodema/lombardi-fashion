@@ -643,7 +643,7 @@ function aiErr(e){
   const c=e?.code;
   if(c==='offline') return 'Sin conexión: no pude consultar a la IA. Probá cuando tengas señal.';
   if(c==='session_expired') return 'Se venció la sesión. Salí y volvé a entrar desde Perfil.';
-  if(c==='no_key') return 'Falta configurar la clave de la IA en Supabase.';
+  if(c==='no_key') return 'Falta configurar la clave de la IA (GEMINI_API_KEY) en Supabase.';
   if(c==='rate_limited') return 'Demasiadas consultas seguidas. Probá de nuevo en un rato.';
   if(c==='image_rejected') return 'No pude leer esa foto. Probá con otra.';
   if(c==='invalid_json') return 'La respuesta vino rara. Tocá de nuevo para reintentar.';
