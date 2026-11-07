@@ -361,16 +361,24 @@ function save(){
 function prof(){ return ST.profiles[ST.active]; }
 function reindex(){ IDX=new Map(prof().items.map(i=>[i.id,i])); }
 const byId = id => IDX.get(id);
-function vetado(it,p){
-  const v=(p.perfil.vetos||'').toLowerCase().split(',').map(s=>s.trim()).filter(Boolean);
-  if(!v.length) return false; const t=(it.nombre+' '+it.tipo+' '+it.color+' '+(it.calce||'')).toLowerCase();
-  return v.some(w=>t.includes(w));
+/* "me gusta" / "no me gusta": entiende plurales, tildes, palabras sueltas y sinónimos comunes */
+const STOP=new Set(['de','del','la','las','el','los','con','y','e','en','un','una','color','tipo','muy']);
+const SINON=[['zapatilla','zapa','sneaker','tenis'],['remera','camiseta','playera','polera'],['buzo','hoodie','sudadera'],['canguro','capucha','hoodie'],
+  ['sweater','sueter','pullover','jersey','chompa'],['campera','chaqueta','casaca'],['camperon','puffer','plumifero','abrigo'],['tapado','abrigo','sobretodo'],
+  ['jean','vaquero','denim'],['pantalon','pantalone'],['jogging','jogger','buzo deportivo'],['pollera','falda'],['saco','blazer','americana'],['zapato','mocasin'],
+  ['cartera','bolso'],['aro','pendiente'],['oversize','holgado','ancho'],['ajustado','slim','entallado','skinny']];
+function norm(s){ return String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,''); }
+function stem(w){ w=norm(w); return w.length>4&&/es$/.test(w)&&!/[aeiou]es$/.test(w)?w.slice(0,-2):w.length>3&&/s$/.test(w)?w.slice(0,-1):w; }
+function alts(w){ const g=SINON.find(a=>a.some(x=>stem(x)===w)); return g?g.map(stem):[w]; }
+function textoPrenda(it){ return [it.nombre,it.tipo,it.color,it.calce,it.estampado,it.material,it.estilo,...(it.estilos||[])].join(' '); }
+function coincide(it,lista){
+  const frases=String(lista||'').split(/[,;\n]/).map(s=>s.trim()).filter(Boolean); if(!frases.length) return false;
+  const pal=norm(textoPrenda(it)).split(/[^a-z0-9ñ]+/).filter(Boolean).map(stem), txt=pal.join(' ');
+  return frases.some(f=>{ const ws=norm(f).split(/[^a-z0-9ñ]+/).filter(w=>w&&!STOP.has(w)).map(stem); if(!ws.length) return false;
+    return ws.every(w=>alts(w).some(a=>pal.some(x=>x===a||(a.length>=4&&x.startsWith(a))||(x.length>=4&&a.startsWith(x)))||(a.includes(' ')&&txt.includes(a)))); });
 }
-function gusta(it,p){
-  const v=(p.perfil.gustos||'').toLowerCase().split(',').map(s=>s.trim()).filter(Boolean);
-  if(!v.length) return false; const t=(it.nombre+' '+it.tipo+' '+it.color+' '+(it.calce||'')+' '+(it.estampado||'')+' '+(it.material||'')).toLowerCase();
-  return v.some(w=>t.includes(w));
-}
+function vetado(it,p){ return coincide(it,p.perfil.vetos); }
+function gusta(it,p){ return coincide(it,p.perfil.gustos); }
 function ctxEstilo(){ const c=ST.ctx; return c.estilo || prof().perfil.estilos[c.ocasion] || (OCASIONES.find(o=>o.k===c.ocasion)||{}).e || 'casual'; }
 
 /* ============ motor de evaluación ============ */
